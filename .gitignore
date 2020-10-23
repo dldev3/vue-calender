@@ -2,6 +2,7 @@
 node_modules
 /dist
 .pytest_cache
+.vs
 
 # local env files
 .env.local

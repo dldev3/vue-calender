@@ -3,9 +3,8 @@
     <v-col>
       <v-sheet height="64">
         <v-toolbar flat color="white">
-          <v-btn outlined class="mr-4" @click="setToday">
-            Today
-          </v-btn>
+          <v-btn outlined class="mr-4" @click="dialog = true">New Event</v-btn>
+          <v-btn outlined class="mr-4" @click="setToday">Today</v-btn>
           <v-btn fab text small @click="prev">
             <v-icon small> mdi-chevron-left </v-icon>
           </v-btn>
@@ -40,6 +39,25 @@
           </v-menu>
         </v-toolbar>
       </v-sheet>
+
+<!-- Add event dialog -->
+<v-dialog v-model="dialog" max-width="500" >
+  <v-card>
+    <v-container>
+      <v-form @submit.prevent="addEvent">
+        <v-text-field v-model="name" type="text" label="event name (required)"></v-text-field>
+        <v-text-field v-model="details" type="text" label="detail"></v-text-field>
+        <v-text-field v-model="start" type="date" label="start (required)"></v-text-field>
+        <v-text-field v-model="end" type="date" label="end (required)"></v-text-field>
+        <v-text-field v-model="color" type="color" label="color (click to open colour menu)"></v-text-field>
+        <v-btn type="submit" color="primary" class="mr-4" @click.stop="dialog=false">
+          Create Event
+        </v-btn>
+      </v-form>
+    </v-container>
+  </v-card>
+</v-dialog>
+
       <v-sheet height="600">
         <v-calendar
           ref="calendar"
@@ -59,30 +77,35 @@
           v-model="selectedOpen"
           :close-on-content-click="false"
           :activator="selectedElement"
-          full-width
           offset-x
         >
           <v-card color="grey lighten-4" min-width="350px" flat>
             <v-toolbar :color="selectedEvent.color" dark>
-              <v-btn icon>
-                <v-icon>mdi-pencil</v-icon>
+              <v-btn @click="deleteEvent(selectedEvent.id)" icon>
+                <v-icon>mdi-delete</v-icon>
               </v-btn>
               <v-toolbar-title v-html="selectedEvent.name"></v-toolbar-title>
               <v-spacer></v-spacer>
-              <v-btn icon>
-                <v-icon>mdi-heart</v-icon>
-              </v-btn>
-              <v-btn icon>
-                <v-icon>mdi-dots-vertical</v-icon>
-              </v-btn>
             </v-toolbar>
             <v-card-text>
-              <span v-html="selectedEvent.details"></span>
+              <form v-if="currentlyEditing !== selectedEvent.id" action="">
+                {{ selectedEvent.details }}
+              </form>
+              <form v-else action="">
+                <textarea-autosize 
+                  v-model="selectedEvent.details" 
+                  type="text"
+                  style="width: 100%"
+                  :min-height="100"
+                  placeholder="Add Note"
+                >
+                </textarea-autosize>
+              </form>
             </v-card-text>
             <v-card-actions>
-              <v-btn text color="secondary" @click="selectedOpen = false">
-                Cancel
-              </v-btn>
+              <v-btn text color="secondary" @click="selectedOpen = false">Close</v-btn>
+              <v-btn text v-if="currentlyEditing !== selectedEvent.id" @click.prevent="editEvent(selectedEvent)">Edit</v-btn>
+              <v-btn text v-else  @click.prevent="updateEvent(selectedEvent)">Save</v-btn>
             </v-card-actions>
           </v-card>
         </v-menu>
@@ -118,6 +141,44 @@ export default {
    dialog: false
 
  }),
+
+computed: {
+  title(){
+    const { start, end } = this;
+    if (!start || !end){
+      return '';
+    }
+
+  const startMonth = this.monthFormatter(start)
+  const endMonth = this.monthFormatter(end)
+  const suffixMonth = startMonth === endMonth ? '' : endMonth;
+
+  const startYear = start.year
+  const endYear = end.year
+  const suffixYear = startYear === endYear ? '' : endYear;
+
+  const startDay = start.day + this.nth(start.day);
+  const endDay = end.day + this.nth(end.day); 
+
+  switch (this.type) {
+    case 'month':
+      return `${startMonth} ${startYear}`
+    case 'week' :
+    case '4day' :
+      return `${startMonth} ${startDay} ${startYear} - ${suffixMonth} ${endDay} ${suffixYear}`
+    case 'day':
+      return `${startMonth} ${startDay} ${startYear}` 
+  }
+  return '';
+  },
+
+  monthFormatter() {
+    return this.$refs.calendar.getFormatter({
+        timeZone: 'UTC', month: 'long',
+    })
+  },
+},
+
  mounted() {
    this.getEvents();
  },
@@ -132,7 +193,46 @@ export default {
      });
      this.events = events;
  },
- viewDay({ date }){
+
+ async addEvent(){
+   if(this.name && this.start && this.end){
+     await db.collection('calEvent').add({
+       name: this.name,
+       details: this.details,
+       start: this.start,
+       end: this.end,
+       color: this.color
+     });
+     this.getEvents();
+     this.name = "";
+     this.details = "";
+     this.start = "";
+     this.end = "";
+     this.color = "#1976D2";
+   } else {
+     alert('Name,Start and End date are required');
+   }
+ },
+
+async updateEvent(ev){
+  await db
+  .collection('calEvent')
+  .doc(this.currentlyEditing)
+  .update({
+    details: ev.details
+  });
+  this.selcetedOpen = false;
+  this.currentlyEditing = null;
+},
+async deleteEvent(ev){
+  await db
+  .collection('calEvent')
+  .doc(ev)
+  .delete();
+  this.selcetedOpen = false;
+  this.getEvents();
+},
+viewDay({ date }){
    this.focus = date
    this.type = 'day'
  },
@@ -147,6 +247,9 @@ export default {
  },
  next(){
    this.$refs.calendar.next();
+ },
+ editEvent(ev) {
+   this.currentlyEditing = ev.id;
  },
  showEvent({ nativeEvent, event }){
    const open = () => {
